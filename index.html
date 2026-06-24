@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="
+    default-src 'self';
+    script-src 'self' https://cdnjs.cloudflare.com;
+    style-src 'self';
+    connect-src https://generativelanguage.googleapis.com https://api.openai.com;
+    img-src 'self' data: blob:;
+    media-src 'none';
+    object-src 'none';
+    base-uri 'self';
+  ">
+  <title>Smart Doc Assistant v1.0</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"
+    integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw"
+    crossorigin="anonymous"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="hdr">
+    <div class="hdr-l">
+      <span class="hdr-logo">📄</span>
+      <span class="hdr-title">Smart Doc Assistant</span>
+      <span class="hdr-badge">v1.0</span>
+    </div>
+    <div class="hdr-r">
+      <button class="btn btn-danger" id="panicClearBtn">🔥 清除資料</button>
+    </div>
+  </header>
+
+  <main class="page">
+    <div class="notice">
+      <strong>📌 資料安全說明：</strong>
+      API Key 及文件僅存在您當前瀏覽器的執行記憶體中，不寫入任何儲存區。
+      文件由您的瀏覽器<strong>直接</strong>送往 Google 或 OpenAI，不經過本工具開發者的任何伺服器。
+      重整或關閉頁面後所有暫存資料即消失。
+      <br><strong>⚠️ 使用說明：</strong>請透過 VS Code 的 Live Server 開啟此頁面；若直接雙擊 HTML 檔案開啟，外部 API 連線可能會被瀏覽器封鎖。
+    </div>
+
+    <details class="disclaimer">
+      <summary>📋 著作權、免責聲明與隱私政策</summary>
+      <div class="dis-body">
+        <div class="dis-grid">
+          <div class="dis-section">
+            <h3>🔒 隱私機制</h3>
+            <ul>
+              <li>API Key 與文件不寫入 localStorage、sessionStorage、Cookie 或任何後端資料庫</li>
+              <li>所有資料僅在當前瀏覽器分頁執行期間的記憶體中暫存</li>
+              <li>關閉或重整頁面後，本工具本身不保留任何可讀取狀態</li>
+              <li>若使用第三方 AI API，文件內容依使用者操作直接送往該服務商，請先確認其資料使用政策</li>
+            </ul>
+          </div>
+          <div class="dis-section">
+            <h3>⚠️ 使用者責任</h3>
+            <ul>
+              <li>請勿上傳違反企業資安政策或侵害他人智慧財產權之文件</li>
+              <li>建議僅使用低額度、可隨時撤銷的測試用 API Key</li>
+              <li>因個人操作行為引發之任何法律風險由使用者本人承擔</li>
+              <li>本工具按「現狀」提供，不保證對特定用途的適用性</li>
+            </ul>
+          </div>
+          <div class="dis-section">
+            <h3>⚖️ 免責聲明</h3>
+            <p>開發者不對任何直接、間接、附帶或後果性損害負責，包括但不限於資料遺失、業務中斷或第三方 API 服務中斷所造成之損失。本工具依賴 Google Gemini 及 OpenAI 等第三方 API，如該服務中斷，本工具將無法使用。</p>
+            <ul class="dis-list">
+              <li>本工具無法控制第三方 API 對資料的保存、訓練、審核或日誌政策</li>
+              <li>清除資料僅清除本頁前端狀態，不代表第三方 API 已刪除已接收內容</li>
+              <li>不建議上傳公司機密、個人資料、醫療、法律、財務或受 NDA 約束之文件</li>
+            </ul>
+          </div>
+          <div class="dis-section">
+            <h3>📝 著作權與授權</h3>
+            <p>© 2026 林勝堂 (Kimi Lin). 本工具採用 MIT 許可證授權。允許任何人自由使用、複製、修改及散布，但須保留著作權聲明。</p>
+          </div>
+        </div>
+      </div>
+    </details>
+
+    <div class="mode-tabs">
+      <div class="tab active" id="tab-extract" data-mode="extract">
+        <div class="tab-icon">📊</div>
+        <div class="tab-name">表格提取</div>
+        <div class="tab-desc">識別並匯出文件中的表格</div>
+      </div>
+      <div class="tab" id="tab-text" data-mode="text">
+        <div class="tab-icon">📝</div>
+        <div class="tab-name">文字提取</div>
+        <div class="tab-desc">擷取文件全文並整理格式</div>
+      </div>
+      <div class="tab" id="tab-chat" data-mode="chat">
+        <div class="tab-icon">💬</div>
+        <div class="tab-name">AI 問答</div>
+        <div class="tab-desc">與文件內容進行對話分析</div>
+      </div>
+    </div>
+
+    <div class="workspace">
+      <div class="card">
+        <div class="card-head">⚙️ 設定</div>
+        <div class="card-body">
+          <div class="field">
+            <label class="lbl">AI 模型</label>
+            <select class="sel" id="aiProvider">
+              <option value="gemini">Gemini（支援 PDF ＋ 圖片）</option>
+              <option value="gpt">GPT-4o（僅支援圖片）</option>
+            </select>
+            <div class="hint" id="providerHint">
+              免費額度充足，在 <a href="https://aistudio.google.com/app/apikey" target="_blank">AI Studio</a> 一鍵取得 Key
+            </div>
+          </div>
+
+          <div class="field">
+            <label class="lbl">API Key</label>
+            <input type="password" class="inp" id="apiKey" autocomplete="off" placeholder="貼上您的 API Key...">
+            <div id="keyWarn" class="key-warn hidden">⚠️ <strong>僅使用測試用 API Key</strong>，切勿貼入公司、主帳號或高額度金鑰。此 Key 將由您的瀏覽器直接送往 AI 服務商。</div>
+            <div id="keyFmtErr" class="key-fmt-err hidden"></div>
+          </div>
+
+          <div class="field">
+            <label class="lbl">上傳文件</label>
+            <div class="drop-zone" id="dropZone">
+              <div class="drop-icon">📤</div>
+              <div>點擊或拖曳檔案至此</div>
+              <div class="drop-sub" id="fmtHint">支援：JPG、PNG、WebP、PDF</div>
+              <input type="file" id="fileInput" accept="image/*,.pdf" class="visually-hidden">
+            </div>
+            <div class="file-pill" id="filePill">
+              <span>📎</span>
+              <span class="file-name" id="fileName"></span>
+              <span class="file-sz" id="fileSz"></span>
+              <button class="btn btn-ghost clear-file-btn" id="clearFileBtn">✕</button>
+            </div>
+          </div>
+
+          <div id="fmtBlock">
+            <label class="lbl">輸出格式</label>
+            <div class="fmt-group fmt-group-compact">
+              <div id="extractFmts" class="fmt-opts">
+                <label class="fmt-opt selected" data-fmt="csv">
+                  <input type="radio" name="efmt" value="csv" checked> CSV
+                </label>
+                <label class="fmt-opt" data-fmt="json">
+                  <input type="radio" name="efmt" value="json"> JSON
+                </label>
+                <label class="fmt-opt" data-fmt="excel">
+                  <input type="radio" name="efmt" value="excel"> Excel
+                </label>
+              </div>
+
+              <div id="textFmts" class="fmt-opts hidden">
+                <label class="fmt-opt selected" data-fmt="txt">
+                  <input type="radio" name="tfmt" value="txt" checked> TXT
+                </label>
+                <label class="fmt-opt" data-fmt="md">
+                  <input type="radio" name="tfmt" value="md"> Markdown
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <button class="btn btn-primary start-btn" id="startBtn">▶ 提取表格</button>
+          <div class="err" id="errBox"></div>
+        </div>
+      </div>
+
+      <div class="card result-wrap" id="resultCard">
+        <div id="panelExtract">
+          <div class="card-head">
+            📊 表格結果
+            <div class="card-head-r hidden" id="extractDlBtn">
+              <button class="btn btn-success download-btn" id="downloadTableBtn">⬇ 下載</button>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="ph" id="extractPH">
+              <div class="ph-icon">📊</div>
+              <div class="ph-text">上傳文件並按「▶ 提取表格」<br>AI 將識別所有表格，整理成選定格式下載</div>
+            </div>
+            <div id="extractContent" class="hidden">
+              <div class="tbl-tabs" id="tblTabs"></div>
+              <div class="tbl-wrap"><table id="resultTable"></table></div>
+            </div>
+            <div id="rawExtract" class="hidden" style="margin-top:12px">
+              <div class="lbl raw-label">⚠️ 未偵測到標準表格，顯示 AI 原始輸出</div>
+              <textarea class="txt-out raw-extract-text" id="rawExtractText" readonly></textarea>
+            </div>
+          </div>
+        </div>
+
+        <div id="panelText" class="hidden">
+          <div class="card-head">
+            📝 文字結果
+            <div class="card-head-r">
+              <button class="btn btn-success download-btn" id="downloadTextBtn">⬇ 下載</button>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="ph" id="textPH">
+              <div class="ph-icon">📝</div>
+              <div class="ph-text">上傳文件並按「▶ 提取文字」<br>AI 將完整提取並整理文字內容</div>
+            </div>
+            <textarea class="txt-out hidden" id="textOut" readonly placeholder="提取結果將顯示於此..."></textarea>
+          </div>
+        </div>
+
+        <div id="panelChat" class="hidden">
+          <div class="card-head">
+            💬 AI 問答
+            <div class="card-head-r">
+              <span id="chatStatus" class="chat-status"></span>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="chat-msgs" id="chatMsgs">
+              <div class="msg msg-sys">請先上傳文件，再按左側「▶ 載入文件」，之後即可在此提問</div>
+            </div>
+            <div class="chat-counter" id="chatCounter"></div>
+            <div class="chat-row">
+              <textarea class="chat-inp not-ready" id="chatInp" rows="2" placeholder="請先按「▶ 載入文件」，之後即可輸入問題…"></textarea>
+              <button class="btn btn-primary" id="sendBtn" disabled>送出</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="overlay" id="overlay">
+          <div class="spinner"></div>
+          <div class="overlay-msg" id="overlayMsg">AI 處理中…</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">© 2026 林勝堂 (Kimi Lin) · Smart Doc Assistant v1.0 · MIT License</div>
+  </main>
+
+  <div class="modal-backdrop" id="confirmModal">
+    <div class="modal">
+      <div class="modal-title">⚠️ 確認送出文件</div>
+      <div class="modal-sub">請確認以下資訊後再送出</div>
+      <div class="modal-info" id="confirmInfo"></div>
+      <div class="modal-warn">
+        本工具無法控制第三方 API 對資料的保存、訓練或日誌政策。<br>
+        <strong>請勿上傳公司機密、個資、醫療、法律、財務或 NDA 文件。</strong>
+      </div>
+      <div class="modal-btns">
+        <button class="btn btn-ghost" id="cancelConfirmBtn">取消</button>
+        <button class="btn btn-primary" id="confirmOkBtn">確認送出</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js" defer></script>
+</body>
+</html>
