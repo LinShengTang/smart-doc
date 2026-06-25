@@ -351,6 +351,7 @@ async function runText() {
     document.getElementById('textPH').classList.add('hidden');
     const ta = document.getElementById('textOut');
     ta.classList.remove('hidden'); ta.value = txt;
+    document.getElementById('downloadTextBtn').classList.remove('hidden');
   } catch (e) {
     showErr(e.message);
   } finally {
@@ -541,6 +542,7 @@ function panicClear() {
   document.getElementById('filePill').classList.remove('show');
   document.getElementById('textOut').value = '';
   document.getElementById('textOut').classList.add('hidden');
+  document.getElementById('downloadTextBtn').classList.add('hidden');
   document.getElementById('textPH').classList.remove('hidden');
   document.getElementById('extractPH').classList.remove('hidden');
   document.getElementById('extractContent').classList.add('hidden');
@@ -577,6 +579,7 @@ function bindEvents() {
 
 bindEvents();
 switchMode('extract');
+document.getElementById('downloadTextBtn').classList.add('hidden');
 
 Object.assign(window, {
   switchMode, selectFmt, onProviderChange,
