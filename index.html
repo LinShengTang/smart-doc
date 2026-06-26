@@ -7,7 +7,7 @@
     default-src 'self';
     script-src 'self' https://cdnjs.cloudflare.com;
     style-src 'self';
-    connect-src https://generativelanguage.googleapis.com https://api.openai.com;
+    connect-src https://generativelanguage.googleapis.com https://api.openai.com https://r.jina.ai;
     img-src 'self' data: blob:;
     media-src 'none';
     object-src 'none';
@@ -135,6 +135,15 @@
             </div>
           </div>
 
+          <div class="field">
+            <label class="lbl">或輸入網址</label>
+            <div class="url-input-row">
+              <input type="url" class="inp" id="urlInp" placeholder="https://...">
+              <button class="btn btn-ghost" id="fetchUrlBtn">擷取</button>
+            </div>
+            <div id="urlStatus" class="url-status hidden"></div>
+          </div>
+
           <div id="fmtBlock">
             <label class="lbl">輸出格式</label>
             <div class="fmt-group fmt-group-compact">
@@ -218,6 +227,12 @@
               <div class="msg msg-sys">請先上傳文件，再按左側「▶ 載入文件」，之後即可在此提問</div>
             </div>
             <div class="chat-counter" id="chatCounter"></div>
+            <div class="quick-btns hidden" id="quickBtns">
+              <button class="btn btn-ghost quick-btn" data-prompt="請提供這份文件的重點摘要，條列式呈現主要內容。">📋 摘要</button>
+              <button class="btn btn-ghost quick-btn" data-prompt="請萃取這份文件的關鍵字與核心概念，每個關鍵字附上簡短說明。">🔑 關鍵字</button>
+              <button class="btn btn-ghost quick-btn" data-prompt="請根據這份文件的結構，生成一份完整的目錄（Table of Contents）。">📑 目錄</button>
+              <button class="btn btn-ghost quick-btn" data-prompt="請根據這份文件內容，生成 5-8 個常見問題（FAQ）及其答案。">❓ FAQ</button>
+            </div>
             <div class="chat-row">
               <textarea class="chat-inp not-ready" id="chatInp" rows="2" placeholder="請先按「▶ 載入文件」，之後即可輸入問題…"></textarea>
               <button class="btn btn-primary" id="sendBtn" disabled>送出</button>

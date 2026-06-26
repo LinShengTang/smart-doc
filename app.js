@@ -9,6 +9,8 @@ const S = {
   history: [],
   extractFmt: 'csv',
   textFmt: 'txt',
+  urlText: null,
+  urlSource: '',
 };
 
 const MODELS = { gemini: 'gemini-3.5-flash', gpt: 'gpt-4o' };
@@ -80,6 +82,9 @@ function handleFile(f) {
 
   clearErr();
   S.file = f; S.b64 = null; S.mime = f.type; S.docCtx = null; S.history = [];
+  S.urlText = null; S.urlSource = '';
+  document.getElementById('urlInp').value = '';
+  document.getElementById('urlStatus').className = 'url-status hidden';
 
   const sz = f.size < 1048576 ? (f.size / 1024).toFixed(1) + ' KB' : (f.size / 1048576).toFixed(2) + ' MB';
   document.getElementById('fileName').textContent = f.name;
@@ -117,7 +122,7 @@ async function getB64() {
 
 function validate() {
   if (!document.getElementById('apiKey').value.trim()) { showErr('請輸入 API Key'); return false; }
-  if (!S.file) { showErr('請先上傳文件'); return false; }
+  if (!S.file && !S.urlText) { showErr('請上傳文件，或輸入網址並點擊「擷取」'); return false; }
   clearErr(); return true;
 }
 
@@ -129,16 +134,22 @@ function showConfirm(action) {
   const prov = document.getElementById('aiProvider').value;
   const provLabel = prov === 'gemini' ? 'Google Gemini' : 'OpenAI GPT-4o';
   const modeLabels = { extract: '表格提取', text: '文字提取', chat: '載入文件（AI 問答）' };
-  const sz = S.file.size < 1048576 ? (S.file.size / 1024).toFixed(1) + ' KB' : (S.file.size / 1048576).toFixed(2) + ' MB';
 
   const info = document.getElementById('confirmInfo');
   info.innerHTML =
-    '<div><strong>文件：</strong><span id="_ci_file"></span></div>' +
+    '<div><strong id="_ci_src_lbl">來源：</strong><span id="_ci_file"></span></div>' +
     '<div><strong>功能：</strong><span id="_ci_mode"></span></div>' +
     '<div><strong>送往：</strong><span id="_ci_dest"></span></div>' +
     '<div><strong>說明：</strong>由您的瀏覽器直接送往上方 API，不經過開發者伺服器</div>';
 
-  document.getElementById('_ci_file').textContent = S.file.name + '（' + sz + '）';
+  if (S.file) {
+    const sz = S.file.size < 1048576 ? (S.file.size / 1024).toFixed(1) + ' KB' : (S.file.size / 1048576).toFixed(2) + ' MB';
+    document.getElementById('_ci_src_lbl').textContent = '文件：';
+    document.getElementById('_ci_file').textContent = S.file.name + '（' + sz + '）';
+  } else {
+    document.getElementById('_ci_src_lbl').textContent = '網址：';
+    document.getElementById('_ci_file').textContent = S.urlSource;
+  }
   document.getElementById('_ci_mode').textContent = modeLabels[S.mode];
   document.getElementById('_ci_dest').textContent = provLabel + ' API';
 
@@ -198,9 +209,50 @@ async function callGPT(messages) {
   return d.choices[0].message.content;
 }
 
-async function callWithFile(prompt) {
-  const b64 = await getB64();
+async function fetchUrl() {
+  const url = document.getElementById('urlInp').value.trim();
+  if (!url) { showErr('請輸入網址'); return; }
+  if (!url.startsWith('http')) { showErr('請輸入完整網址（以 http 或 https 開頭）'); return; }
+  const status = document.getElementById('urlStatus');
+  status.className = 'url-status loading';
+  status.textContent = '⏳ 擷取中…';
+  status.classList.remove('hidden');
+  document.getElementById('fetchUrlBtn').disabled = true;
+  try {
+    const r = await fetch('https://r.jina.ai/' + url);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const text = await r.text();
+    if (!text || text.length < 30) throw new Error('無法取得有效內容');
+    S.urlText = text; S.urlSource = url;
+    S.file = null; S.b64 = null; S.mime = null; S.docCtx = null; S.history = [];
+    document.getElementById('filePill').classList.remove('show');
+    document.getElementById('fileInput').value = '';
+    status.className = 'url-status ok';
+    const short = url.length > 55 ? url.slice(0, 55) + '…' : url;
+    status.textContent = '✅ 已擷取：' + short + '（' + Math.round(text.length / 1000) + 'K 字）';
+    clearErr();
+    if (S.mode === 'chat') resetChatUI();
+  } catch (e) {
+    status.className = 'url-status err';
+    status.textContent = '❌ 擷取失敗：' + e.message;
+  } finally {
+    document.getElementById('fetchUrlBtn').disabled = false;
+  }
+}
+
+async function callWithContext(prompt) {
   const prov = document.getElementById('aiProvider').value;
+  if (S.urlText) {
+    const maxLen = 60000;
+    const content = S.urlText.length > maxLen ? S.urlText.slice(0, maxLen) + '\n\n[內容過長，已截斷]' : S.urlText;
+    const combined = `以下是從「${S.urlSource}」擷取的網頁內容：\n\n${content}\n\n---\n\n${prompt}`;
+    if (prov === 'gemini') {
+      return geminiReq({ contents: [{ parts: [{ text: combined }] }], generationConfig: { temperature: 0.1, maxOutputTokens: 8192 } });
+    } else {
+      return callGPT([{ role: 'user', content: combined }]);
+    }
+  }
+  const b64 = await getB64();
   if (prov === 'gemini') {
     return geminiReq({
       contents: [{ parts: [{ inline_data: { mime_type: S.mime, data: b64 } }, { text: prompt }] }],
@@ -246,7 +298,7 @@ async function runExtract() {
 5. 除 CSV 資料和分隔標記外，不輸出任何說明文字`;
 
   try {
-    const raw = (await callWithFile(prompt)).trim();
+    const raw = (await callWithContext(prompt)).trim();
     if (raw === '[NO_TABLE]' || raw === '') {
       showExtractRaw('這份文件中沒有偵測到表格。');
     } else {
@@ -346,7 +398,7 @@ async function runText() {
 - 只輸出文字本身，不加任何說明`;
 
   try {
-    const txt = await callWithFile(prompt);
+    const txt = await callWithContext(prompt);
     S.textOut = txt;
     document.getElementById('textPH').classList.add('hidden');
     const ta = document.getElementById('textOut');
@@ -367,6 +419,7 @@ function resetChatUI() {
   document.getElementById('sendBtn').disabled = true;
   document.getElementById('chatStatus').textContent = '';
   document.getElementById('chatCounter').textContent = '';
+  document.getElementById('quickBtns').classList.add('hidden');
 }
 
 async function initChat() {
@@ -380,7 +433,7 @@ async function initChat() {
 請盡量詳細，這份摘要將作為後續問答的唯一資料來源。`;
 
   try {
-    const summary = await callWithFile(prompt);
+    const summary = await callWithContext(prompt);
     S.docCtx = summary; S.history = [];
     document.getElementById('chatMsgs').innerHTML = '';
     appendMsg('sys', '✅ 文件已載入，AI 已讀取內容。請在下方輸入問題。');
@@ -389,7 +442,8 @@ async function initChat() {
     inp.className = 'chat-inp';
     inp.placeholder = '輸入問題… (Enter 送出，Shift+Enter 換行)';
     document.getElementById('sendBtn').disabled = false;
-    document.getElementById('chatStatus').textContent = S.file.name;
+    document.getElementById('chatStatus').textContent = S.file ? S.file.name : S.urlSource;
+    document.getElementById('quickBtns').classList.remove('hidden');
     inp.focus();
     updateCounter();
   } catch (e) {
@@ -411,13 +465,15 @@ async function sendMsg() {
   S.history.push({ role: 'user', content: txt });
   const loadEl = appendMsg('ai', '⋯', true);
 
-  const sys = `你是一個文件分析助理。以下是用戶上傳文件的詳細內容，請嚴格根據此內容回答：
+  const sourceName = S.file ? S.file.name : S.urlSource;
+  const sys = `你是一個文件分析助理。以下是用戶來源的詳細內容，請嚴格根據此內容回答：
 
 === 文件內容 ===
 ${S.docCtx}
 ================
 
-原則：直接根據文件作答；文件中沒有的資訊請明確告知；使用繁體中文；數字請準確引用。`;
+原則：直接根據文件作答；文件中沒有的資訊請明確告知；使用繁體中文；數字請準確引用。
+引用格式：若引用具體內容，請標明「根據【${sourceName}】：」。`;
 
   try {
     const reply = await callChat(S.history, sys);
@@ -480,6 +536,13 @@ function appendMsg(role, txt, loading = false) {
   return d;
 }
 
+function sendQuickPrompt(promptText) {
+  if (!S.docCtx) { showErr('請先按「▶ 載入文件」後再使用快速提問。'); return; }
+  const inp = document.getElementById('chatInp');
+  inp.value = promptText;
+  sendMsg();
+}
+
 function handleChatKey(e) {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); }
 }
@@ -536,9 +599,11 @@ function clearErr() { document.getElementById('errBox').classList.remove('show')
 
 function panicClear() {
   if (!confirm('清除所有暫存資料？\n包含：API Key、上傳文件、提取結果、聊天記錄。')) return;
-  Object.assign(S, { file: null, b64: null, mime: null, tables: [], activeTable: 0, textOut: '', docCtx: null, history: [] });
+  Object.assign(S, { file: null, b64: null, mime: null, tables: [], activeTable: 0, textOut: '', docCtx: null, history: [], urlText: null, urlSource: '' });
   document.getElementById('apiKey').value = '';
   document.getElementById('fileInput').value = '';
+  document.getElementById('urlInp').value = '';
+  document.getElementById('urlStatus').className = 'url-status hidden';
   document.getElementById('filePill').classList.remove('show');
   document.getElementById('textOut').value = '';
   document.getElementById('textOut').classList.add('hidden');
@@ -570,11 +635,15 @@ function bindEvents() {
     });
   });
   document.getElementById('startBtn').addEventListener('click', runCurrent);
+  document.getElementById('fetchUrlBtn').addEventListener('click', fetchUrl);
   document.getElementById('downloadTableBtn').addEventListener('click', downloadTable);
   document.getElementById('downloadTextBtn').addEventListener('click', downloadText);
   document.getElementById('chatInp').addEventListener('keydown', handleChatKey);
   document.getElementById('sendBtn').addEventListener('click', sendMsg);
   document.getElementById('cancelConfirmBtn').addEventListener('click', closeConfirm);
+  document.querySelectorAll('.quick-btn').forEach(btn => {
+    btn.addEventListener('click', () => sendQuickPrompt(btn.dataset.prompt));
+  });
 }
 
 bindEvents();
@@ -583,8 +652,8 @@ document.getElementById('downloadTextBtn').classList.add('hidden');
 
 Object.assign(window, {
   switchMode, selectFmt, onProviderChange,
-  handleFile, clearFile, runCurrent,
-  sendMsg, handleChatKey,
+  handleFile, clearFile, runCurrent, fetchUrl,
+  sendMsg, sendQuickPrompt, handleChatKey,
   downloadTable, downloadText,
   panicClear, validateKeyFormat, closeConfirm
 });
