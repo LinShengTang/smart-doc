@@ -11,7 +11,7 @@ const S = {
   textFmt: 'txt',
 };
 
-const MODELS = { gemini: 'gemini-2.5-flash', gpt: 'gpt-4o' };
+const MODELS = { gemini: 'gemini-3.5-flash', gpt: 'gpt-4o' };
 
 function validateKeyFormat(val) {
   const prov = document.getElementById('aiProvider').value;
